@@ -13,6 +13,24 @@ and the model, at two levels of detail:
    browser with the built-in inspector UI, which also shows calls live while
    they stream.
 
+## Scope: study and debugging only
+
+fonendo is a **passive observation tool**, built to study how an agentic
+coding tool talks to its model and to debug that traffic. Like the
+stethoscope it is named after, it listens and never touches:
+
+- The proxy forwards every request and every response **byte-for-byte,
+  unmodified, in both directions**. It never alters, injects, drops, or
+  reorders anything on the wire.
+- It must not be used as a base for tampering with model traffic —
+  rewriting prompts or responses, stripping or spoofing headers, bypassing
+  rate limits or safety systems, or impersonating clients. That is outside
+  this project's purpose and may violate your API provider's terms of
+  service.
+- Everything runs and stays on your own machine, observing your own
+  traffic, with your own credentials. Auth headers are forwarded upstream
+  but redacted in the capture files.
+
 ## Level 1: token accounting
 
 - A `Stop` hook fires every time Claude finishes responding. It parses the
