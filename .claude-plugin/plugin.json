@@ -1,0 +1,9 @@
+{
+  "name": "fonendo",
+  "description": "A stethoscope for Claude Code: logs token usage of every model API call (/fonendo:show), and captures raw API traffic via a local proxy with a live web inspector (/fonendo:raw).",
+  "version": "0.4.0",
+  "author": {
+    "name": "Luca Lusso",
+    "email": "luca.lusso@sparkfabrik.com"
+  }
+}
