@@ -6,7 +6,16 @@ export const app = $state({
   connected: false,
   selectedKey: null,
   drawerKey: null, // call shown in the right off-canvas panel
+  // One-shot request for the drawer: open this tab and scroll to a target.
+  // Detail consumes and clears it. focus: 'injected' (first <system-reminder>
+  // block of the last user message) or 'system' (trailing system message).
+  drawerRequest: null, // { tab, focus } | null
 })
+
+export function openDrawer(call, request = null) {
+  app.drawerKey = key(call)
+  app.drawerRequest = request
+}
 
 function key(call) {
   return call.live ? `live-${call.id}` : call.file

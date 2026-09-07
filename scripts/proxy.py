@@ -151,19 +151,114 @@ def outline_response(body_text):
 
 
 def outline_trigger(request_json):
-    """What prompted this call: a user message or tool results."""
+    """What prompted this call: a typed prompt, tool results, and any injected
+    context.
+
+    Claude Code appends hook output (SessionStart, UserPromptSubmit, ...) as a
+    trailing ``role: system`` message, and wraps other injected context
+    (CLAUDE.md, env facts) in ``<system-reminder>`` text blocks inside the user
+    message. Neither is typed by a human. A trailing system message is reported
+    under ``system`` next to the message that precedes it, so the typed prompt
+    stays visible; reminder blocks are stripped from ``preview`` and counted in
+    ``injected``.
+    Must stay in sync with outlineTrigger() in web/src/lib/sse.js.
+    """
     messages = (request_json or {}).get("messages") or []
     if not messages:
         return {"type": "none"}
-    content = messages[-1].get("content")
+    last = messages[-1]
+    if lane_kind(request_json) == "classifier":
+        action = classifier_action(last)
+        if action:
+            return {"type": "user", "label": "graded action", "preview": action[:200], "injected": 0}
+    if last.get("role") != "system":
+        return describe_trigger_message(last)
+    joined = " ".join(message_texts(last)).strip()
+    system = {"source": injected_source(joined), "preview": joined[:200]}
+    if len(messages) < 2:
+        return {"type": "system", "system": system}
+    trigger = describe_trigger_message(messages[-2])
+    trigger["system"] = system
+    return trigger
+
+
+def message_texts(message):
+    content = message.get("content")
     if isinstance(content, str):
-        return {"type": "user", "preview": content[:200]}
-    blocks = [b for b in content or [] if isinstance(b, dict)]
+        return [content]
+    return [
+        b.get("text", "")
+        for b in content or []
+        if isinstance(b, dict) and b.get("type") == "text"
+    ]
+
+
+def describe_trigger_message(message):
+    content = message.get("content")
+    blocks = [] if isinstance(content, str) else [
+        b for b in content or [] if isinstance(b, dict)
+    ]
     results = [b for b in blocks if b.get("type") == "tool_result"]
     if results:
         return {"type": "tool_result", "count": len(results)}
-    texts = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-    return {"type": "user", "preview": texts[:200]}
+    human = []
+    injected = 0
+    for text in message_texts(message):
+        stripped = SYSTEM_REMINDER_RE.sub("", text).strip()
+        if stripped != text.strip():
+            injected += 1
+        if stripped:
+            human.append(stripped)
+    return {
+        "type": "user",
+        "preview": " ".join(human)[:200],
+        "injected": injected,
+    }
+
+
+def injected_source(text):
+    """Short label for a system message: its first line up to the first colon
+    group, e.g. ``SessionStart:startup hook success``."""
+    first_line = text.split("\n", 1)[0].strip()
+    match = re.match(r"^([\w:-]+(?: hook \w+)?)", first_line)
+    return (match.group(1) if match else first_line)[:60]
+
+
+CLASSIFIER_PROMPT_RE = re.compile(r"You are a security monitor for autonomous AI coding agents")
+
+
+def system_text(request_json):
+    system = (request_json or {}).get("system")
+    if isinstance(system, list):
+        return " ".join(b.get("text", "") for b in system if isinstance(b, dict))
+    return system or ""
+
+
+def lane_kind(request_json):
+    """Which conversation family a request belongs to.
+
+    ``classifier`` is auto mode's permission classifier: one call per tool use,
+    grading the newest action in a transcript excerpt. Everything else is left
+    to the seed-based split (main agent, subagents, title, suggestions, quota)
+    done by laneKind() in web/src/lib/sse.js.
+    Must stay in sync with laneKind() in web/src/lib/sse.js.
+    """
+    if CLASSIFIER_PROMPT_RE.search(system_text(request_json)[:600]):
+        return "classifier"
+    return None
+
+
+def classifier_action(message):
+    """The action a permission-classifier call grades: the last transcript
+    entry before ``</transcript>`` (a ``{"Bash": ...}``-style JSON line)."""
+    texts = [t.strip() for t in message_texts(message) if t.strip()]
+    last = ""
+    for text in texts:
+        if text.startswith("</transcript>"):
+            break
+        if text.startswith("{"):
+            last = text
+    return last
 
 
 SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -238,6 +333,7 @@ def summarize(request_json, status, response_text, duration_s, timestamp):
         "trigger": outline_trigger(request_json),
         "response": outline_response(response_text or ""),
         "thread_seed": first_message_seed(request_json),
+        "lane": lane_kind(request_json),
     }
 
 

@@ -109,6 +109,73 @@ export function shortModel(model) {
 // Injected <system-reminder> blocks are stripped first: parallel subagents
 // share the same reminder prefix and would otherwise collide.
 // Must stay in sync with first_message_seed() in scripts/proxy.py.
+const SYSTEM_REMINDER_RE = /<system-reminder>[\s\S]*?<\/system-reminder>/g
+
+// What prompted a call: a typed prompt, tool results, and any injected
+// context. Claude Code appends hook output as a trailing `role: system`
+// message and wraps other injected context in <system-reminder> text blocks
+// inside the user message; neither is typed by a human. A trailing system
+// message is attached as `system` to the message before it, so the typed
+// prompt stays visible. Mirrors outline_trigger() in scripts/proxy.py — keep
+// the two in sync.
+export function outlineTrigger(request) {
+  const messages = request?.messages || []
+  if (!messages.length) return { type: 'none' }
+  const last = messages[messages.length - 1]
+  if (laneKind('', { request }) === 'classifier') {
+    const action = classifierAction(last)
+    if (action) return { type: 'user', label: 'graded action', preview: action.slice(0, 200), injected: 0 }
+  }
+  if (last.role !== 'system') return describeTriggerMessage(last)
+  const joined = messageTexts(last).join(' ').trim()
+  const system = { source: injectedSource(joined), preview: joined.slice(0, 200) }
+  if (messages.length < 2) return { type: 'system', system }
+  return { ...describeTriggerMessage(messages[messages.length - 2]), system }
+}
+
+// The action a permission-classifier call grades: the last transcript entry
+// before </transcript> (a {"Bash": ...}-style JSON line).
+function classifierAction(message) {
+  let last = ''
+  for (const raw of messageTexts(message)) {
+    const text = raw.trim()
+    if (!text) continue
+    if (text.startsWith('</transcript>')) break
+    if (text.startsWith('{')) last = text
+  }
+  return last
+}
+
+function messageTexts(message) {
+  const content = message.content
+  if (typeof content === 'string') return [content]
+  return (Array.isArray(content) ? content : [])
+    .filter((b) => b?.type === 'text')
+    .map((b) => b.text || '')
+}
+
+function describeTriggerMessage(message) {
+  const content = message.content
+  const blocks = Array.isArray(content) ? content.filter((b) => b && typeof b === 'object') : []
+  const results = blocks.filter((b) => b.type === 'tool_result')
+  if (results.length) return { type: 'tool_result', count: results.length }
+  const human = []
+  let injected = 0
+  for (const text of messageTexts(message)) {
+    const stripped = text.replace(SYSTEM_REMINDER_RE, '').trim()
+    if (stripped !== text.trim()) injected++
+    if (stripped) human.push(stripped)
+  }
+  return { type: 'user', preview: human.join(' ').slice(0, 200), injected }
+}
+
+// Short label for a system message, e.g. "SessionStart:startup hook success".
+function injectedSource(text) {
+  const firstLine = text.split('\n', 1)[0].trim()
+  const match = firstLine.match(/^([\w:-]+(?: hook \w+)?)/)
+  return (match ? match[1] : firstLine).slice(0, 60)
+}
+
 export function firstMessageSeed(request) {
   const messages = request?.messages || []
   if (!messages.length) return ''
@@ -120,13 +187,21 @@ export function firstMessageSeed(request) {
           .filter((b) => b?.type === 'text')
           .map((b) => b.text || '')
           .join(' ')
-  const stripped = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  const stripped = text.replace(SYSTEM_REMINDER_RE, '').trim()
   return (stripped || text.trim()).slice(0, 200)
 }
 
 // Classify a thread by its seed: main-loop vs known utility sidechains vs
 // spawned subagents.
-export function laneKind(seed) {
+const CLASSIFIER_PROMPT_RE = /You are a security monitor for autonomous AI coding agents/
+
+// Which conversation family a call belongs to. `lane` (from the proxy
+// summary) or the request's system prompt catches auto mode's permission
+// classifier; the seed splits the rest. Mirrors lane_kind() in
+// scripts/proxy.py — keep the two in sync.
+export function laneKind(seed, { lane, request } = {}) {
+  if (lane === 'classifier') return 'classifier'
+  if (request && CLASSIFIER_PROMPT_RE.test(systemText(request).slice(0, 600))) return 'classifier'
   if (seed.startsWith('<session>')) return 'title'
   if (seed.startsWith('[SUGGESTION MODE')) return 'suggestions'
   if (seed === 'quota') return 'quota'

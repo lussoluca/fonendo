@@ -154,7 +154,11 @@ http://127.0.0.1:8484/__fonendo/
 - **Session flow view** (click a session header): a vertical timeline of the
   agentic loop — each user turn, then the chain of model calls it triggered,
   with thinking markers, response previews, tool-call chips, and
-  "tool results fed back" connectors between calls. Live calls appear in the
+  "tool results fed back" connectors between calls. Context Claude Code
+  injects on its own is told apart from typed text: hook output sent as a
+  trailing `role: system` message shows as a dashed "system" card, and
+  `<system-reminder>` blocks (CLAUDE.md, env facts) are stripped from the
+  user preview and counted as "+N injected". Live calls appear in the
   flow while still streaming; clicking a call opens its full payload.
 - **Detail tabs**: overview, system prompt, tool schemas, message history,
   assembled response (thinking, text, tool calls), and the raw capture JSON.

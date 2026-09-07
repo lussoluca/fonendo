@@ -1,5 +1,5 @@
 <script>
-  import { loadCapture } from './store.svelte.js'
+  import { app, loadCapture } from './store.svelte.js'
   import { parseSSE, systemText, fmt, totalIn, shortModel } from './sse.js'
   import TokenBar from './TokenBar.svelte'
 
@@ -33,6 +33,46 @@
   const system = $derived(systemText(request))
   const tools = $derived(request?.tools || [])
   const messages = $derived(request?.messages || [])
+
+  function isInjected(block) {
+    return block?.type === 'text' && /^\s*<system-reminder>/.test(block.text || '')
+  }
+
+  // Where a one-shot drawer request points: [messageIndex, blockIndex|null].
+  function focusTarget(focus) {
+    if (focus === 'system') {
+      const index = messages.findLastIndex((m) => m.role === 'system')
+      return index >= 0 ? [index, null] : null
+    }
+    if (focus === 'injected') {
+      const index = messages.findLastIndex((m) => m.role === 'user')
+      if (index < 0) return null
+      const content = messages[index].content
+      const block = Array.isArray(content) ? content.findIndex(isInjected) : -1
+      return [index, block >= 0 ? block : null]
+    }
+    return null
+  }
+
+  let focused = $state(null) // [messageIndex, blockIndex|null] to highlight
+
+  $effect(() => {
+    const req = app.drawerRequest
+    if (!req || !messages.length) return
+    tab = req.tab || tab
+    focused = focusTarget(req.focus)
+    app.drawerRequest = null
+    if (!focused) return
+    const [m, b] = focused
+    requestAnimationFrame(() => {
+      const el = document.getElementById(b === null ? `msg-${m}` : `msg-${m}-block-${b}`)
+      el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+  })
+
+  function isFocused(m, b = null) {
+    return focused && focused[0] === m && focused[1] === b
+  }
 
   const TABS = ['overview', 'system', 'tools', 'messages', 'response', 'raw']
 
@@ -178,10 +218,13 @@
   {/each}
 {:else if tab === 'messages'}
   {#each messages as message, index}
-    <div class="msg {message.role}">
+    <div class="msg {message.role}" class:focused={isFocused(index)} id="msg-{index}">
       <div class="msg-head">
         <span class="role {message.role}">{message.role}</span>
         <span class="muted">#{index + 1}</span>
+        {#if message.role === 'system'}
+          <span class="tag">appended by Claude Code (hook output)</span>
+        {/if}
       </div>
       {#if typeof message.content === 'string'}
         <details class="block" open={message.content.length < 400}>
@@ -192,10 +235,19 @@
           <pre class="doc">{message.content}</pre>
         </details>
       {:else}
-        {#each message.content || [] as block}
-          <details class="block" open={blockText(block).length < 400}>
+        {#each message.content || [] as block, blockIndex}
+          <details
+            class="block"
+            class:injected={isInjected(block)}
+            class:focused={isFocused(index, blockIndex)}
+            id="msg-{index}-block-{blockIndex}"
+            open={blockText(block).length < 400 || isFocused(index, blockIndex)}
+          >
             <summary>
               <span class="name">{blockLabel(block)}</span>
+              {#if isInjected(block)}
+                <span class="tag">injected by Claude Code</span>
+              {/if}
               <span class="muted">{fmt(blockText(block).length)} chars</span>
             </summary>
             <pre class="doc">{blockText(block)}</pre>
@@ -419,6 +471,29 @@
   }
   .role.assistant {
     color: var(--output);
+  }
+  .role.system {
+    color: var(--live);
+  }
+  .msg.system {
+    border-left-color: var(--live);
+    border-style: dashed;
+    background: color-mix(in srgb, var(--live) 5%, var(--panel));
+  }
+  .tag {
+    font-size: 11px;
+    color: var(--live);
+    padding: 1px 8px;
+    border: 1px dashed var(--live);
+    border-radius: 8px;
+  }
+  .block.injected > summary .name {
+    color: var(--live);
+  }
+  .focused {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
   }
   .cursor {
     animation: blink 1s step-start infinite;

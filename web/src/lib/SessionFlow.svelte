@@ -1,11 +1,12 @@
 <script>
-  import { app, callKey } from './store.svelte.js'
+  import { app, callKey, openDrawer } from './store.svelte.js'
   import {
     parseSSE,
     fmt,
     totalIn,
     shortModel,
     firstMessageSeed,
+    outlineTrigger,
     laneKind,
     seedHue,
   } from './sse.js'
@@ -15,21 +16,6 @@
 
   const chronological = $derived([...group.calls].reverse())
 
-  function liveTrigger(call) {
-    const messages = call.request?.messages || []
-    if (!messages.length) return { type: 'none' }
-    const content = messages[messages.length - 1].content
-    if (typeof content === 'string') return { type: 'user', preview: content.slice(0, 200) }
-    const blocks = Array.isArray(content) ? content : []
-    const results = blocks.filter((b) => b?.type === 'tool_result')
-    if (results.length) return { type: 'tool_result', count: results.length }
-    const texts = blocks
-      .filter((b) => b?.type === 'text')
-      .map((b) => b.text || '')
-      .join(' ')
-    return { type: 'user', preview: texts.slice(0, 200) }
-  }
-
   function info(call) {
     if (!call.live) {
       return {
@@ -37,11 +23,12 @@
         response: call.response || { thinking: false, text_preview: '', tool_calls: [] },
         usage: call.usage,
         seed: call.thread_seed ?? '',
+        lane: call.lane,
       }
     }
     const parsed = parseSSE(call.sse)
     return {
-      trigger: liveTrigger(call),
+      trigger: outlineTrigger(call.request),
       response: {
         thinking: !!parsed.thinking || parsed.hasThinking,
         text_preview: parsed.text.slice(0, 200),
@@ -49,6 +36,7 @@
       },
       usage: parsed.usage,
       seed: firstMessageSeed(call.request),
+      lane: laneKind('', { request: call.request }) === 'classifier' ? 'classifier' : null,
     }
   }
 
@@ -62,13 +50,14 @@
     title: 'session title',
     suggestions: 'input suggestions',
     quota: 'quota probe',
+    classifier: 'permission classifier',
   }
 
   const segments = $derived.by(() => {
     let mainSeed = null
     const out = []
     for (const row of rows) {
-      const kind = laneKind(row.seed)
+      const kind = laneKind(row.seed, { lane: row.lane })
       if (mainSeed === null && kind === 'agent') mainSeed = row.seed
       const lane = row.seed === mainSeed ? 'main' : kind
       const last = out[out.length - 1]
@@ -92,14 +81,37 @@
     <div class="node user-node">
       <div class="dot user-dot"></div>
       <div class="user-card">
-        <span class="who">{inLane ? 'task' : 'user'}</span>
+        <span class="who">{trigger.label || (inLane ? 'task' : 'user')}</span>
         <span class="preview">{trigger.preview || '(empty message)'}</span>
+        {#if trigger.injected}
+          <button
+            class="injected"
+            title="{trigger.injected} <system-reminder> block{trigger.injected === 1 ? '' : 's'} Claude Code added to this message (CLAUDE.md, env facts) — not typed by the user. Click to inspect."
+            onclick={() => openDrawer(call, { tab: 'messages', focus: 'injected' })}
+          >
+            +{trigger.injected} injected
+          </button>
+        {/if}
       </div>
     </div>
   {:else if trigger.type === 'tool_result'}
     <div class="loopback">
       ⮑ {trigger.count} tool result{trigger.count === 1 ? '' : 's'} fed back
       into the next call
+    </div>
+  {/if}
+  {#if trigger.system}
+    <div class="node system-node">
+      <div class="dot system-dot"></div>
+      <button
+        class="user-card system-card"
+        title="Trailing role: system message Claude Code appended (hook output). Click to inspect."
+        onclick={() => openDrawer(call, { tab: 'messages', focus: 'system' })}
+      >
+        <span class="who system-who">system</span>
+        <span class="source">{trigger.system.source}</span>
+        <span class="preview">{trigger.system.preview || '(empty message)'}</span>
+      </button>
     </div>
   {/if}
 
@@ -158,8 +170,12 @@
 <p class="muted intro">
   One agentic turn = one user message followed by a chain of model calls.
   Every call resends the whole history; each tool result loops straight back
-  into the next call. Subagents and utility calls run as separate
-  conversations — shown here as colored side lanes. Click a call to inspect
+  into the next call. Dashed <em>system</em> cards are context Claude Code
+  injected on its own (hook output); they are not typed by the user.
+  <em>Permission classifier</em> lanes are auto mode grading one tool call
+  each; the card shows the action being graded. Subagents and utility calls
+  run as separate conversations — shown here as colored side lanes. Click a
+  call to inspect
   its full payload in a side panel.
 </p>
 
@@ -285,6 +301,50 @@
     border: 1px solid var(--accent);
     border-radius: 6px;
     background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  }
+  .system-node {
+    margin-top: 4px;
+  }
+  .system-dot {
+    background: var(--panel-2);
+    border-color: var(--live);
+  }
+  .system-card {
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    border-color: var(--live);
+    border-style: dashed;
+    background: color-mix(in srgb, var(--live) 6%, var(--panel));
+  }
+  .system-who {
+    color: var(--live);
+  }
+  .source {
+    color: var(--live);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .injected {
+    margin-left: auto;
+    cursor: pointer;
+    font: inherit;
+    background: none;
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+  .injected:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .system-card:hover {
+    border-style: solid;
   }
   .who {
     color: var(--accent);
