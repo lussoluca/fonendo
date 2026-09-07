@@ -103,18 +103,26 @@ the bundled logging proxy.
 
 ### Run
 
+Install the proxy once as a login service, then launch Claude Code through it
+from any project directory:
+
 ```bash
-scripts/claude-logged.sh
+scripts/install-proxy-service.sh        # launchd on macOS, systemd --user on Linux
+cd ~/some/project
+/path/to/fonendo/scripts/claude-logged.sh
 ```
 
-This starts `scripts/proxy.py` on `127.0.0.1:8484`, launches `claude` with
-`ANTHROPIC_BASE_URL=http://127.0.0.1:8484`, and stops the proxy when Claude
-exits. Override the port with `FONENDO_PROXY_PORT`. You can also run the two
-pieces manually:
+`install-proxy-service.sh` builds the inspector UI if needed, then registers
+`scripts/proxy.py` on `127.0.0.1:8484` to start at login and restart if it
+dies (`--uninstall` removes it). `claude-logged.sh` checks that the proxy is
+reachable, sets `ANTHROPIC_BASE_URL=http://127.0.0.1:8484`, loads the plugin
+with `--plugin-dir`, and passes any extra arguments to `claude`. Override the
+port for both with `FONENDO_PROXY_PORT`. Without the service, run the proxy
+by hand:
 
 ```bash
 python3 scripts/proxy.py --port 8484
-ANTHROPIC_BASE_URL=http://127.0.0.1:8484 claude
+ANTHROPIC_BASE_URL=http://127.0.0.1:8484 claude --plugin-dir /path/to/fonendo
 ```
 
 Every API call becomes one JSON file in `~/.claude/fonendo/raw/`,
@@ -167,8 +175,8 @@ http://127.0.0.1:8484/__fonendo/
   into the "response" tab in real time; when a call finishes, its row gains
   the final token bar and usage numbers.
 
-`claude-logged.sh` builds the UI automatically on first run (needs Node).
-To build manually or develop it:
+`install-proxy-service.sh` builds the UI on first run (needs Node). To
+build manually or develop it:
 
 ```bash
 cd web
@@ -188,15 +196,16 @@ npm run dev          # Vite dev server with API proxied to :8484
 
 ## Files
 
-| Path                         | Purpose                                       |
-| ---------------------------- | --------------------------------------------- |
-| `.claude-plugin/plugin.json` | Plugin manifest                               |
-| `hooks/hooks.json`           | Registers the `Stop` hook                     |
-| `scripts/log_tokens.py`      | Parses the transcript, writes the usage log   |
-| `scripts/show_tokens.py`     | Renders the per-call table                    |
-| `commands/show.md`           | The `/fonendo:show` slash command             |
-| `scripts/proxy.py`           | Logging proxy for raw API traffic             |
-| `scripts/claude-logged.sh`   | Starts proxy + Claude Code together           |
-| `scripts/show_raw.py`        | Raw capture inspector (CLI)                   |
-| `commands/raw.md`            | The `/fonendo:raw` slash command              |
-| `web/`                       | Svelte inspector UI (served at `/__fonendo/`) |
+| Path                               | Purpose                                       |
+| ---------------------------------- | --------------------------------------------- |
+| `.claude-plugin/plugin.json`       | Plugin manifest                               |
+| `hooks/hooks.json`                 | Registers the `Stop` hook                     |
+| `scripts/log_tokens.py`            | Parses the transcript, writes the usage log   |
+| `scripts/show_tokens.py`           | Renders the per-call table                    |
+| `commands/show.md`                 | The `/fonendo:show` slash command             |
+| `scripts/proxy.py`                 | Logging proxy for raw API traffic             |
+| `scripts/install-proxy-service.sh` | Installs the proxy as a login service         |
+| `scripts/claude-logged.sh`         | Runs Claude Code through the proxy + plugin   |
+| `scripts/show_raw.py`              | Raw capture inspector (CLI)                   |
+| `commands/raw.md`                  | The `/fonendo:raw` slash command              |
+| `web/`                             | Svelte inspector UI (served at `/__fonendo/`) |

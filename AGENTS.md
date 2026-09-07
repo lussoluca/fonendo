@@ -23,18 +23,19 @@ and slash commands (`commands/*.md`).
 
 ## Repository Layout
 
-| Path                         | Purpose                                        |
-| ---------------------------- | ---------------------------------------------- |
-| `.claude-plugin/plugin.json` | Plugin manifest                                |
-| `hooks/hooks.json`           | Registers the `Stop` hook                      |
-| `scripts/log_tokens.py`      | Stop hook: parses transcript, writes usage log |
-| `scripts/show_tokens.py`     | Renders the per-call token table               |
-| `scripts/proxy.py`           | Logging proxy for raw API traffic + UI server  |
-| `scripts/claude-logged.sh`   | Starts proxy + Claude Code together            |
-| `scripts/show_raw.py`        | Raw capture inspector (CLI)                    |
-| `commands/show.md`           | The `/fonendo:show` slash command              |
-| `commands/raw.md`            | The `/fonendo:raw` slash command               |
-| `web/`                       | Svelte inspector UI (served at `/__fonendo/`)  |
+| Path                               | Purpose                                        |
+| ---------------------------------- | ---------------------------------------------- |
+| `.claude-plugin/plugin.json`       | Plugin manifest                                |
+| `hooks/hooks.json`                 | Registers the `Stop` hook                      |
+| `scripts/log_tokens.py`            | Stop hook: parses transcript, writes usage log |
+| `scripts/show_tokens.py`           | Renders the per-call token table               |
+| `scripts/proxy.py`                 | Logging proxy for raw API traffic + UI server  |
+| `scripts/install-proxy-service.sh` | Installs the proxy as a login service          |
+| `scripts/claude-logged.sh`         | Runs Claude Code through the proxy with plugin |
+| `scripts/show_raw.py`              | Raw capture inspector (CLI)                    |
+| `commands/show.md`                 | The `/fonendo:show` slash command              |
+| `commands/raw.md`                  | The `/fonendo:raw` slash command               |
+| `web/`                             | Svelte inspector UI (served at `/__fonendo/`)  |
 
 ## Setup
 
@@ -51,8 +52,8 @@ npm run dev          # Vite dev server, API proxied to 127.0.0.1:8484
 To run the plugin itself:
 
 ```bash
-claude --plugin-dir /path/to/fonendo     # load the plugin
-scripts/claude-logged.sh                 # proxy + claude together (raw capture)
+scripts/install-proxy-service.sh         # proxy as a login service (once)
+scripts/claude-logged.sh                 # claude through the proxy, plugin loaded
 ```
 
 After editing the plugin, reload it inside a session with `/reload-plugins`.
@@ -66,9 +67,12 @@ interface. Consider adding a Justfile if the command surface grows.
   `show_tokens.py`, and `show_raw.py` must not gain third-party
   dependencies. This is a deliberate design constraint: the plugin must run
   anywhere `python3` exists.
-- **The proxy must never write to stdout/stderr when started by
-  `claude-logged.sh`.** Claude Code's TUI owns the terminal; proxy output is
-  redirected to `~/.claude/fonendo/proxy.log`.
+- **The proxy runs as a background service, not from the launcher.**
+  `install-proxy-service.sh` registers it with launchd or systemd, logging to
+  `~/.claude/fonendo/proxy.log`; `claude-logged.sh` only checks it is
+  reachable. Restart the service after editing `proxy.py`
+  (`launchctl kickstart -k gui/$(id -u)/com.fonendo.proxy` on macOS,
+  `systemctl --user restart fonendo-proxy` on Linux).
 - **Auth headers are redacted in capture files.** `x-api-key` and
   `authorization` are forwarded upstream but written as `<redacted>`. Any
   change to capture serialization must preserve this.
@@ -79,8 +83,8 @@ interface. Consider adding a Justfile if the command surface grows.
   Python viewers; keep the "show raw output in a code block" contract.
 - **Vite base path is `/__fonendo/`.** The proxy serves `web/dist` under that
   prefix; keep `vite.config.js` `base` and the proxy route in sync.
-- `web/dist/` and `web/node_modules/` are gitignored; `dist` is rebuilt by
-  `claude-logged.sh` on first run.
+- `web/dist/` and `web/node_modules/` are gitignored; `dist` is built by
+  `install-proxy-service.sh` on first run.
 
 ## Git Workflow
 
@@ -156,8 +160,9 @@ There is no automated test suite. Verify changes manually:
 - **Hook / token accounting**: run a session with the plugin loaded, then
   `python3 scripts/show_tokens.py` and check the table against the
   transcript.
-- **Proxy / raw capture**: `scripts/claude-logged.sh`, run a turn, then
-  `python3 scripts/show_raw.py` and open
+- **Proxy / raw capture**: with the service installed, run
+  `scripts/claude-logged.sh`, do a turn, then `python3 scripts/show_raw.py`
+  and open
   `http://127.0.0.1:8484/__fonendo/`.
 - **Web UI**: `cd web && npm run dev` against a running proxy.
 
@@ -173,8 +178,9 @@ There is no automated test suite. Verify changes manually:
 ### Dangerous (ask user first)
 
 - `cd web && npm install <package>` — dependency changes
-- `scripts/claude-logged.sh` — starts a proxy and a nested Claude Code
-  instance; binds a local port
+- `scripts/claude-logged.sh` — starts a nested Claude Code instance
+- `scripts/install-proxy-service.sh` — registers a login service; binds a
+  local port
 - `python3 scripts/proxy.py --port <n>` — binds a local port
 - `git push`
 
@@ -187,8 +193,8 @@ There is no automated test suite. Verify changes manually:
 
 - Python scripts stay stdlib-only — never add third-party imports.
 - Never log or persist auth header values; keep the `<redacted>` behavior.
-- The proxy never writes to the terminal when launched via
-  `claude-logged.sh`; log to `~/.claude/fonendo/proxy.log`.
+- The proxy never writes to the terminal; it logs to
+  `~/.claude/fonendo/proxy.log`.
 - Keep `log_tokens.py` idempotent — full rebuild per Stop event, no
   incremental state.
 - Capture files contain full conversations and system prompts; treat
