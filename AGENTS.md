@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`logger` is a Claude Code plugin that shows what actually travels between
+`fonendo` is a Claude Code plugin that shows what actually travels between
 Claude Code and the model, at two levels of detail:
 
 1. **Token accounting** (always on once installed): a `Stop` hook parses the
@@ -51,7 +51,7 @@ npm run dev          # Vite dev server, API proxied to 127.0.0.1:8484
 To run the plugin itself:
 
 ```bash
-claude --plugin-dir /path/to/logger      # load the plugin
+claude --plugin-dir /path/to/fonendo     # load the plugin
 scripts/claude-logged.sh                 # proxy + claude together (raw capture)
 ```
 

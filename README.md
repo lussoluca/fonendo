@@ -45,7 +45,7 @@ stethoscope it is named after, it listens and never touches:
 Run Claude Code with the plugin loaded:
 
 ```bash
-claude --plugin-dir /Users/lussoluca/Sites/Development/AI/plugins/logger
+claude --plugin-dir /Users/lussoluca/Sites/Development/AI/plugins/fonendo
 ```
 
 After editing the plugin, reload it inside a session with `/reload-plugins`.
