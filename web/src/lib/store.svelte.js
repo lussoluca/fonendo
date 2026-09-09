@@ -10,7 +10,19 @@ export const app = $state({
   // Detail consumes and clears it. focus: 'injected' (first <system-reminder>
   // block of the last user message) or 'system' (trailing system message).
   drawerRequest: null, // { tab, focus } | null
+  // session id -> { name, title }: the name the user gave with /rename and
+  // the title Claude Code generated, read by the proxy from the transcript.
+  sessions: {},
 })
+
+export async function loadSessionMeta(ids) {
+  const wanted = ids.filter((id) => id && id !== 'no-session')
+  if (!wanted.length) return
+  const response = await fetch(`${BASE}/api/sessions?ids=${encodeURIComponent(wanted.join(','))}`)
+  if (!response.ok) return
+  const meta = await response.json()
+  for (const [id, value] of Object.entries(meta)) app.sessions[id] = value
+}
 
 export function openDrawer(call, request = null) {
   app.drawerKey = key(call)

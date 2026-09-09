@@ -7,6 +7,7 @@
     callKey,
     selectedCall,
     drawerCall,
+    loadSessionMeta,
   } from './lib/store.svelte.js'
   import { fmt, totalIn, shortModel } from './lib/sse.js'
   import TokenBar from './lib/TokenBar.svelte'
@@ -93,6 +94,24 @@
     // order groups by that.
     return [...byId.values()]
   })
+
+  // Session name/title come from the transcript, which Claude Code keeps
+  // writing during a session: refetch when the set of sessions changes and
+  // whenever a call finishes.
+  $effect(() => {
+    const ids = groups.map((g) => g.id)
+    void app.calls.filter((c) => !c.live).length
+    loadSessionMeta(ids)
+  })
+
+  function sessionLabel(id) {
+    const meta = app.sessions[id]
+    if (!meta) return { main: null, sub: null }
+    return {
+      main: meta.name || meta.title || null,
+      sub: meta.name ? meta.title : null,
+    }
+  }
 
   const totals = $derived.by(() => {
     const sum = { in: 0, out: 0, calls: 0 }
@@ -193,6 +212,7 @@
     {/if}
 
     {#each groups as group, index (group.id)}
+      {@const label = sessionLabel(group.id)}
       <button
         class="group-head"
         class:selected={app.selectedKey === `session:${group.id}`}
@@ -225,10 +245,16 @@
         {:else}
           <span class="session plain">no session</span>
         {/if}
+        {#if label.main}
+          <span class="session-name" title={label.main}>{label.main}</span>
+        {/if}
         {#if group.live}<span class="pulse">live</span>{/if}
         <span class="group-stats">
           {group.calls.length} calls · in {fmt(group.in)} · out {fmt(group.out)}
         </span>
+        {#if label.sub}
+          <span class="session-title" title={label.sub}>{label.sub}</span>
+        {/if}
       </button>
       {#if isOpen(group, index)}
         {#each group.calls as call (callKey(call))}
@@ -266,7 +292,7 @@
 
   <main>
     {#if selectedGroup}
-      <SessionFlow group={selectedGroup} />
+      <SessionFlow group={selectedGroup} meta={app.sessions[selectedGroup.id]} />
     {:else if current}
       <Detail call={current} />
     {:else}
@@ -416,13 +442,32 @@
   }
   .group-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 4px 8px;
     width: 100%;
     text-align: left;
     padding: 8px 12px 4px;
     background: var(--bg);
     border-bottom: 1px solid var(--line);
+  }
+  .session-name {
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 14ch;
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .session-title {
+    flex: 0 0 100%;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .group-head:hover {
     background: var(--panel-2);
@@ -448,6 +493,7 @@
     color: var(--muted);
     font-size: 11px;
     margin-left: auto;
+    white-space: nowrap;
   }
   .row {
     display: block;

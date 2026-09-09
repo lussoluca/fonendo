@@ -40,11 +40,13 @@ from urllib.parse import parse_qs, urlparse
 
 UPSTREAM_HOST = "api.anthropic.com"
 RAW_DIR = Path.home() / ".claude" / "fonendo" / "raw"
+PROJECTS_DIR = Path.home() / ".claude" / "projects"
 WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 UI_PREFIX = "/__fonendo"
 
 CAPTURE_NAME_RE = re.compile(r"^[\w.-]+\.json$")
 SESSION_RE = re.compile(r"session_([0-9a-f-]{8,})")
+SESSION_ID_RE = re.compile(r"^[0-9a-f-]{8,64}$")
 
 # Never persisted to the capture files.
 REDACTED_HEADERS = {"x-api-key", "authorization", "cookie", "proxy-authorization"}
@@ -418,6 +420,58 @@ def capture_summary(path):
     return summary
 
 
+_session_meta_cache = {}  # session_id -> (transcript path, mtime, meta)
+
+
+def session_meta(session_id):
+    """Name and title Claude Code gave a session, read from its transcript.
+
+    The transcript (``~/.claude/projects/<project>/<session_id>.jsonl``)
+    carries ``{"type": "custom-title", "customTitle": ...}`` when the user
+    names the session with ``/rename`` and ``{"type": "ai-title",
+    "aiTitle": ...}`` when Claude Code generates a title from the first
+    prompt. The last record of each kind wins. Cached per transcript mtime.
+    """
+    if not session_id or not SESSION_ID_RE.match(session_id):
+        return None
+    cached = _session_meta_cache.get(session_id)
+    path = cached[0] if cached else None
+    if path is None or not path.is_file():
+        matches = (
+            sorted(PROJECTS_DIR.glob(f"*/{session_id}.jsonl"))
+            if PROJECTS_DIR.is_dir()
+            else []
+        )
+        if not matches:
+            return None
+        path = matches[0]
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    if cached and cached[0] == path and cached[1] == mtime:
+        return cached[2]
+    meta = {"name": None, "title": None}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if '"custom-title"' not in line and '"ai-title"' not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                kind = entry.get("type")
+                if kind == "custom-title":
+                    meta["name"] = entry.get("customTitle") or None
+                elif kind == "ai-title":
+                    meta["title"] = entry.get("aiTitle") or None
+    except OSError:
+        return None
+    _session_meta_cache[session_id] = (path, mtime, meta)
+    return meta
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -465,6 +519,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._json_response(404, {"error": "no such capture"})
                 return
             self._send_bytes(200, "application/json", path.read_bytes())
+        elif route == "/api/sessions":
+            ids = parse_qs(urlparse(self.path).query).get("ids", [""])[0]
+            result = {}
+            for session_id in ids.split(","):
+                meta = session_meta(session_id.strip())
+                if meta:
+                    result[session_id.strip()] = meta
+            self._json_response(200, result)
         elif route == "/api/search":
             query = parse_qs(urlparse(self.path).query).get("q", [""])[0]
             query = query.strip().lower()

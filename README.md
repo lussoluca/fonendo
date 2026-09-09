@@ -153,9 +153,11 @@ http://127.0.0.1:8484/__fonendo/
 ```
 
 - **Call list grouped by Claude Code session** (from the request's
-  `metadata.user_id`), each group header showing call count and total
-  input/output tokens; each row shows model and a stacked token bar
-  (fresh input / cache write / cache read / output).
+  `metadata.user_id`), each group header showing the session name (set
+  with `/rename`) and the title Claude Code generated, both read from the
+  session transcript, plus call count and total input/output tokens; each
+  row shows model and a stacked token bar (fresh input / cache write /
+  cache read / output).
 - **Full-text search** across all captures — system prompts, tool schemas,
   messages, and responses are searched server-side; group stats recompute
   on the filtered set.
