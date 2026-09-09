@@ -453,6 +453,8 @@
     font-size: 11px;
     padding: 1px 8px;
     border-radius: 8px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
     background: var(--panel-2);
     color: var(--output);
     border: 1px solid var(--line);

@@ -360,6 +360,7 @@
     padding: 12px;
     display: grid;
     gap: 6px;
+    min-width: 0;
   }
   .card .card-label {
     color: var(--muted);
@@ -386,11 +387,15 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    min-width: 0;
   }
   .used-chip {
     font-size: 11px;
     padding: 2px 9px;
     border-radius: 9px;
+    max-width: 100%;
+    text-align: left;
+    overflow-wrap: anywhere;
     background: var(--panel-2);
     border: 1px solid var(--output);
     color: var(--output);
